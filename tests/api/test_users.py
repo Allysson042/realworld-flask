@@ -57,14 +57,11 @@ def test_get_current_user(client, add_user):
         headers={"Authorization": f"Token {jwt}"},
     )
     assert resp.status_code == 200
-    assert resp.json == {
-        "user": {
-            "email": user["email"],
-            "username": user["username"],
-            "bio": user["bio"],
-            "image": user["image"],
-        }
-    }
+    assert resp.json["user"]["email"] == user["email"]
+    assert resp.json["user"]["username"] == user["username"]
+    assert resp.json["user"]["bio"] == user["bio"]
+    assert resp.json["user"]["image"] == user["image"]
+    assert resp.json["user"]["token"] is not None
 
 
 def test_update_user(client, add_user):
@@ -88,11 +85,8 @@ def test_update_user(client, add_user):
     )
 
     assert resp.status_code == 200
-    assert resp.json == {
-        "user": {
-            "username": user["username"],
-            "email": "updated@realworld.io",
-            "bio": "updated bio",
-            "image": "updated image",
-        }
-    }
+    assert resp.json["user"]["username"] == user["username"]
+    assert resp.json["user"]["email"] == "updated@realworld.io"
+    assert resp.json["user"]["bio"] == "updated bio"
+    assert resp.json["user"]["image"] == "updated image"
+    assert resp.json["user"]["token"] is not None

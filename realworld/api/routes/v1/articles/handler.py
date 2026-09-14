@@ -123,7 +123,7 @@ def _base_get_articles_query(
                     AND uf.following_user_id = u.id
                 ) > 0 AS is_curr_user_following,
                 (
-                    SELECT ARRAY_AGG(t.name)
+                    SELECT ARRAY_AGG(t.name ORDER BY t.name)
                     FROM tags t
                     JOIN article_tags at ON t.id = at.tag_id
                     WHERE at.article_id = a.id

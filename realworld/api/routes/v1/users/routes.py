@@ -6,7 +6,6 @@ from realworld.api.routes.v1.users.models import (
     RegisterUserRequest,
     UpdateUserRequest,
     LoginUserRequest,
-    UserDataResponse,
     AuthUser,
     AuthUserResponse,
 )
@@ -66,7 +65,15 @@ def get_current_user() -> dict:
 
     with get_db_connection() as db_conn:
         if user := users_handler.get_user(db_conn, user_id):
-            return UserDataResponse(user=user).model_dump()
+            return AuthUserResponse(
+                user=AuthUser(
+                    email=user.email,
+                    token=generate_jwt(user_id),
+                    username=user.username,
+                    bio=user.bio,
+                    image=user.image,
+                )
+            ).model_dump()
 
     return {"error": "User does not exist."}, 404
 
@@ -75,12 +82,19 @@ def get_current_user() -> dict:
 @users_blueprint.route("/user", methods=["PUT"])
 def update_user() -> dict:
     data = UpdateUserRequest.model_validate(request.json)
+    if not (user_id := get_user_id_from_token()):
+        return {"error": "Invalid token."}, 401
+
     with get_db_connection() as db_conn:
-        if not (
-            user := users_handler.update_user(
-                db_conn, get_user_id_from_token(), data.user
-            )
-        ):
+        if not (user := users_handler.update_user(db_conn, user_id, data.user)):
             return {"error": "User does not exist."}, 404
 
-    return UserDataResponse(user=user).model_dump()
+    return AuthUserResponse(
+        user=AuthUser(
+            email=user.email,
+            token=generate_jwt(user_id),
+            username=user.username,
+            bio=user.bio,
+            image=user.image,
+        )
+    ).model_dump()
