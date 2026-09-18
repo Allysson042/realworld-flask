@@ -1,10 +1,12 @@
+import os
 from uuid import uuid4
 from pytest import fixture
 from unittest.mock import patch
+from contextlib import asynccontextmanager
 from realworld.app import create_app
-from sqlalchemy import text as satext
+from sqlalchemy import create_engine, text as satext
+from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timezone as tz
-from realworld.api.core.db import _ENGINE, _Session
 from realworld.api.routes.v1.users.handler import hash_password
 
 # from realworld.api.core.auth import generate_jwt
@@ -32,10 +34,30 @@ def client(test_app):
 # DB Fixtures (rollback transaction after each unit test) #
 ###########################################################
 
+# Sync engine used ONLY by the test harness to set up fixtures and wrap
+# each test in a rollback transaction. Request-path code (Flask routes and
+# FastAPI routers/handlers) uses the async engine in realworld.api.core.db.
+_TEST_ENGINE = create_engine(
+    f"postgresql+psycopg2://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}/{os.getenv('POSTGRES_DB')}"
+)
+_TestSession = sessionmaker(bind=_TEST_ENGINE)
+
+
+class _AsyncSessionAdapter:
+    """Expose a sync Session through the async interface handlers expect."""
+
+    def __init__(self, sync_session):
+        self._sync = sync_session
+
+    async def execute(self, stmt, params=None):
+        if params is None:
+            return self._sync.execute(stmt)
+        return self._sync.execute(stmt, params)
+
 
 @fixture(scope="session")
 def mock_conn():
-    connection = _ENGINE.connect()
+    connection = _TEST_ENGINE.connect()
     yield connection
     connection.close()
 
@@ -43,7 +65,7 @@ def mock_conn():
 @fixture(scope="function")
 def mock_db_session(mock_conn):
     transaction = mock_conn.begin()
-    session = _Session(bind=mock_conn)
+    session = _TestSession(bind=mock_conn)
     yield session
     session.close()
     transaction.rollback()
@@ -51,11 +73,35 @@ def mock_db_session(mock_conn):
 
 @fixture(autouse=True)
 def mock_get_db_connection(mock_db_session):
-    with patch("realworld.api.core.db._create_db_connection") as mock_db_conn:
-        mock_db_conn.return_value = mock_db_session, mock_db_session.connection()
-        yield mock_db_conn
+    adapter = _AsyncSessionAdapter(mock_db_session)
 
+    @asynccontextmanager
+    async def _mock_cm():
+        yield adapter
 
+    # Patch where the symbol is looked up: core module plus every module
+    # that did `from realworld.api.core.db import get_db_connection`.
+    targets = [
+        "realworld.api.core.db.get_db_connection",
+        "realworld.api.routes.v1.users.routes.get_db_connection",
+        "realworld.api.routes.v1.profiles.routes.get_db_connection",
+        "realworld.api.routes.v1.articles.routes.get_db_connection",
+        "realworld.api.routes.v1.users.router.get_db_connection",
+        "realworld.api.routes.v1.profiles.router.get_db_connection",
+        "realworld.api.routes.v1.articles.router.get_db_connection",
+        "realworld.api.routes.v1.tags.router.get_db_connection",
+    ]
+    with (
+        patch(targets[0], _mock_cm),
+        patch(targets[1], _mock_cm),
+        patch(targets[2], _mock_cm),
+        patch(targets[3], _mock_cm),
+        patch(targets[4], _mock_cm),
+        patch(targets[5], _mock_cm),
+        patch(targets[6], _mock_cm),
+        patch(targets[7], _mock_cm),
+    ):
+        yield _mock_cm
 ####################
 # Data Fixtures
 ####################

@@ -1,3 +1,4 @@
+import asyncio
 from flask import Blueprint, request
 from realworld.api.core.db import get_db_connection
 import realworld.api.routes.v1.articles.handler as articles_handler
@@ -26,16 +27,25 @@ def get_articles() -> dict:
     Returns most recent articles globally by default, provide tag, author or favorited query parameter to filter results
     """
     user_id = get_user_id_from_token()
-    with get_db_connection() as db_conn:
-        articles = articles_handler.get_articles(
-            db_conn,
-            curr_user_id=user_id,
-            filter_tag=request.args.get("tag"),
-            author_username_filter=request.args.get("author"),
-            favorited_by_username_filter=request.args.get("favorited"),
-            limit=int(request.args.get("limit", 20)),
-            offset=int(request.args.get("offset", 0)),
-        )
+    tag = request.args.get("tag")
+    author = request.args.get("author")
+    favorited = request.args.get("favorited")
+    limit = int(request.args.get("limit", 20))
+    offset = int(request.args.get("offset", 0))
+
+    async def _impl():
+        async with get_db_connection() as db_conn:
+            return await articles_handler.get_articles(
+                db_conn,
+                curr_user_id=user_id,
+                filter_tag=tag,
+                author_username_filter=author,
+                favorited_by_username_filter=favorited,
+                limit=limit,
+                offset=offset,
+            )
+
+    articles = asyncio.run(_impl())
 
     return MultipleArticlesResponse(
         articles=articles,
@@ -52,13 +62,19 @@ def get_feed() -> dict:
     if not (user_id := get_user_id_from_token()):
         return {"message": "Invalid token"}, 401
 
-    with get_db_connection() as db_conn:
-        articles = articles_handler.get_feed_articles(
-            db_conn,
-            user_id,
-            limit=int(request.args.get("limit", 20)),
-            offset=int(request.args.get("offset", 0)),
-        )
+    limit = int(request.args.get("limit", 20))
+    offset = int(request.args.get("offset", 0))
+
+    async def _impl():
+        async with get_db_connection() as db_conn:
+            return await articles_handler.get_feed_articles(
+                db_conn,
+                user_id,
+                limit=limit,
+                offset=offset,
+            )
+
+    articles = asyncio.run(_impl())
 
     return MultipleArticlesResponse(
         articles=articles,
@@ -68,12 +84,17 @@ def get_feed() -> dict:
 
 @articles_blueprint.route("/articles/<string:slug>", methods=["GET"])
 def get_article(slug: str) -> dict:
-    with get_db_connection() as db_conn:
-        article = articles_handler.get_article_by_slug(
-            db_conn, slug, curr_user_id=get_user_id_from_token()
-        )
-        if not article:
-            return {"message": "Article not found"}, 404
+    user_id = get_user_id_from_token()
+
+    async def _impl():
+        async with get_db_connection() as db_conn:
+            return await articles_handler.get_article_by_slug(
+                db_conn, slug, curr_user_id=user_id
+            )
+
+    article = asyncio.run(_impl())
+    if not article:
+        return {"message": "Article not found"}, 404
 
     return SingleArticleResponse(article=article).model_dump()
 
@@ -84,8 +105,12 @@ def create_article() -> dict:
         return {"message": "Invalid token"}, 401
 
     data = CreateArticleRequest.model_validate(request.json)
-    with get_db_connection() as db_conn:
-        article = articles_handler.create_article(db_conn, user_id, data.article)
+
+    async def _impl():
+        async with get_db_connection() as db_conn:
+            return await articles_handler.create_article(db_conn, user_id, data.article)
+
+    article = asyncio.run(_impl())
 
     return SingleArticleResponse(article=article).model_dump()
 
@@ -96,10 +121,16 @@ def update_article(slug) -> dict:
         return {"message": "Invalid token"}, 401
 
     data = UpdateArticleRequest.model_validate(request.json)
-    with get_db_connection() as db_conn:
-        article = articles_handler.update_article(db_conn, slug, user_id, data.article)
-        if not article:
-            return {"message": "Article not found"}, 404
+
+    async def _impl():
+        async with get_db_connection() as db_conn:
+            return await articles_handler.update_article(
+                db_conn, slug, user_id, data.article
+            )
+
+    article = asyncio.run(_impl())
+    if not article:
+        return {"message": "Article not found"}, 404
 
     return SingleArticleResponse(article=article).model_dump()
 
@@ -109,9 +140,12 @@ def delete_article(slug: str) -> dict:
     if not (user_id := get_user_id_from_token()):
         return {"message": "Invalid token"}, 401
 
-    with get_db_connection() as db_conn:
-        if not articles_handler.delete_article(db_conn, slug, user_id):
-            return {"message": "Article not found"}, 404
+    async def _impl():
+        async with get_db_connection() as db_conn:
+            return await articles_handler.delete_article(db_conn, slug, user_id)
+
+    if not asyncio.run(_impl()):
+        return {"message": "Article not found"}, 404
 
     return {"message": "Article deleted"}
 
@@ -126,22 +160,30 @@ def create_comment(slug: str) -> dict:
 
     data = CreateCommentRequest.model_validate(request.json)
 
-    with get_db_connection() as db_conn:
-        does_article_exist, comment = articles_handler.create_article_comment(
-            db_conn, slug, user_id, data.comment
-        )
-        if not does_article_exist:
-            return {"message": "Article not found"}, 404
+    async def _impl():
+        async with get_db_connection() as db_conn:
+            return await articles_handler.create_article_comment(
+                db_conn, slug, user_id, data.comment
+            )
+
+    does_article_exist, comment = asyncio.run(_impl())
+    if not does_article_exist:
+        return {"message": "Article not found"}, 404
 
     return CreateCommentResponse(comment=comment).model_dump()
 
 
 @articles_blueprint.route("/articles/<string:slug>/comments", methods=["GET"])
 def get_comments(slug: str) -> dict:
-    with get_db_connection() as db_conn:
-        comments = articles_handler.get_article_comments(
-            db_conn, slug, curr_user_id=get_user_id_from_token()
-        )
+    user_id = get_user_id_from_token()
+
+    async def _impl():
+        async with get_db_connection() as db_conn:
+            return await articles_handler.get_article_comments(
+                db_conn, slug, curr_user_id=user_id
+            )
+
+    comments = asyncio.run(_impl())
 
     return MultipleCommentsResponse(comments=comments).model_dump()
 
@@ -153,8 +195,13 @@ def delete_comment(slug: str, comment_id: str) -> dict:
     if not (user_id := get_user_id_from_token()):
         return {"message": "Invalid token"}, 401
 
-    with get_db_connection() as db_conn:
-        articles_handler.delete_article_comment(db_conn, slug, comment_id, user_id)
+    async def _impl():
+        async with get_db_connection() as db_conn:
+            return await articles_handler.delete_article_comment(
+                db_conn, slug, comment_id, user_id
+            )
+
+    asyncio.run(_impl())
 
     return {"message": "Comment deleted"}
 
@@ -167,10 +214,13 @@ def favorite_article(slug: str) -> dict:
     if not (user_id := get_user_id_from_token()):
         return {"message": "Invalid token"}, 401
 
-    with get_db_connection() as db_conn:
-        article = articles_handler.add_article_favorite(db_conn, slug, user_id)
-        if not article:
-            return {"message": "Article not found"}, 404
+    async def _impl():
+        async with get_db_connection() as db_conn:
+            return await articles_handler.add_article_favorite(db_conn, slug, user_id)
+
+    article = asyncio.run(_impl())
+    if not article:
+        return {"message": "Article not found"}, 404
 
     return SingleArticleResponse(article=article).model_dump()
 
@@ -180,10 +230,15 @@ def unfavorite_article(slug: str) -> dict:
     if not (user_id := get_user_id_from_token()):
         return {"message": "Invalid token"}, 401
 
-    with get_db_connection() as db_conn:
-        article = articles_handler.delete_article_favorite(db_conn, slug, user_id)
-        if not article:
-            return {"message": "Article not found"}, 404
+    async def _impl():
+        async with get_db_connection() as db_conn:
+            return await articles_handler.delete_article_favorite(
+                db_conn, slug, user_id
+            )
+
+    article = asyncio.run(_impl())
+    if not article:
+        return {"message": "Article not found"}, 404
 
     return SingleArticleResponse(article=article).model_dump()
 
@@ -193,7 +248,10 @@ def unfavorite_article(slug: str) -> dict:
 #
 @tags_blueprint.route("", methods=["GET"])
 def get_tags() -> dict:
-    with get_db_connection() as db_conn:
-        tags = articles_handler.get_all_tags(db_conn)
+    async def _impl():
+        async with get_db_connection() as db_conn:
+            return await articles_handler.get_all_tags(db_conn)
+
+    tags = asyncio.run(_impl())
 
     return GetTagsResponse(tags=tags).model_dump()

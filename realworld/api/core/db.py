@@ -1,37 +1,35 @@
 import os
-import typing as typ
-from sqlalchemy import create_engine
-from contextlib import contextmanager
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.orm.session import Session, Connection
-
-_ENGINE = create_engine(
-    f"postgresql+psycopg2://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}/{os.getenv('POSTGRES_DB')}"
+from contextlib import asynccontextmanager
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
 )
 
-_Session = sessionmaker(bind=_ENGINE)
+
+def _database_url() -> str:
+    return (
+        f"postgresql+asyncpg://{os.getenv('POSTGRES_USER')}"
+        f":{os.getenv('POSTGRES_PASSWORD')}"
+        f"@{os.getenv('POSTGRES_HOST')}/{os.getenv('POSTGRES_DB')}"
+    )
 
 
-def _create_db_connection() -> typ.Tuple[Session, Connection]:
-    """Create a new database connection."""
-    session = _Session()
-    conn = session.connection()
-    return session, conn
+_ENGINE = create_async_engine(_database_url())
+
+_AsyncSession = async_sessionmaker(
+    bind=_ENGINE, class_=AsyncSession, expire_on_commit=False
+)
 
 
-@contextmanager
-def get_db_connection():
-    """Context manager for handling database transactions."""
-
-    session, conn = _create_db_connection()
-
-    try:
-        yield conn
-        session.commit()
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        session.rollback()
-        raise e
-    finally:
-        session.close()
+@asynccontextmanager
+async def get_db_connection():
+    """Async context manager for handling database transactions."""
+    async with _AsyncSession() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            await session.rollback()
+            raise

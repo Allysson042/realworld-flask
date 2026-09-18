@@ -32,10 +32,8 @@ async def get_articles(
 ):
     """Returns most recent articles globally by default, provide tag, author
     or favorited query parameter to filter results."""
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        articles = articles_handler.get_articles(
+    async with get_db_connection() as db_conn:
+        articles = await articles_handler.get_articles(
             db_conn,
             curr_user_id=curr_user_id,
             filter_tag=tag,
@@ -62,10 +60,8 @@ async def get_feed(
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        articles = articles_handler.get_feed_articles(
+    async with get_db_connection() as db_conn:
+        articles = await articles_handler.get_feed_articles(
             db_conn,
             user_id,
             limit=limit,
@@ -83,10 +79,8 @@ async def get_article(
     slug: str,
     curr_user_id: typ.Optional[str] = Depends(get_optional_user_id),
 ):
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        article = articles_handler.get_article_by_slug(
+    async with get_db_connection() as db_conn:
+        article = await articles_handler.get_article_by_slug(
             db_conn, slug, curr_user_id=curr_user_id
         )
         if not article:
@@ -103,10 +97,10 @@ async def create_article(
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        article = articles_handler.create_article(db_conn, user_id, payload.article)
+    async with get_db_connection() as db_conn:
+        article = await articles_handler.create_article(
+            db_conn, user_id, payload.article
+        )
 
     return SingleArticleResponse(article=article)
 
@@ -120,10 +114,8 @@ async def update_article(
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        article = articles_handler.update_article(
+    async with get_db_connection() as db_conn:
+        article = await articles_handler.update_article(
             db_conn, slug, user_id, payload.article
         )
         if not article:
@@ -140,10 +132,8 @@ async def delete_article(
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        if not articles_handler.delete_article(db_conn, slug, user_id):
+    async with get_db_connection() as db_conn:
+        if not await articles_handler.delete_article(db_conn, slug, user_id):
             raise HTTPException(status_code=404, detail="Article not found")
 
     return {"message": "Article deleted"}
@@ -161,10 +151,8 @@ async def create_comment(
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        does_article_exist, comment = articles_handler.create_article_comment(
+    async with get_db_connection() as db_conn:
+        does_article_exist, comment = await articles_handler.create_article_comment(
             db_conn, slug, user_id, payload.comment
         )
         if not does_article_exist:
@@ -178,10 +166,8 @@ async def get_comments(
     slug: str,
     curr_user_id: typ.Optional[str] = Depends(get_optional_user_id),
 ):
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        comments = articles_handler.get_article_comments(
+    async with get_db_connection() as db_conn:
+        comments = await articles_handler.get_article_comments(
             db_conn, slug, curr_user_id=curr_user_id
         )
 
@@ -197,10 +183,10 @@ async def delete_comment(
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        articles_handler.delete_article_comment(db_conn, slug, comment_id, user_id)
+    async with get_db_connection() as db_conn:
+        await articles_handler.delete_article_comment(
+            db_conn, slug, comment_id, user_id
+        )
 
     return {"message": "Comment deleted"}
 
@@ -216,10 +202,10 @@ async def favorite_article(
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        article = articles_handler.add_article_favorite(db_conn, slug, user_id)
+    async with get_db_connection() as db_conn:
+        article = await articles_handler.add_article_favorite(
+            db_conn, slug, user_id
+        )
         if not article:
             raise HTTPException(status_code=404, detail="Article not found")
 
@@ -234,10 +220,10 @@ async def unfavorite_article(
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        article = articles_handler.delete_article_favorite(db_conn, slug, user_id)
+    async with get_db_connection() as db_conn:
+        article = await articles_handler.delete_article_favorite(
+            db_conn, slug, user_id
+        )
         if not article:
             raise HTTPException(status_code=404, detail="Article not found")
 
