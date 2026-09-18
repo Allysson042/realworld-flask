@@ -1,61 +1,23 @@
-"""Thin FastAPI auth dependencies wrapping the existing Flask auth logic.
+"""Backwards-compatibility shim (migration step 5).
 
-Intermediate migration state (step 3): this module does NOT rewrite
-``realworld.api.core.auth``. It reuses ``_decode_jwt`` as-is and only adapts
-the transport (FastAPI ``Authorization`` header instead of the Flask
-``request`` object). The wrapped calls are synchronous/blocking; proper
-async auth is revisited in the later auth step.
+Step 3 introduced this module as a thin wrapper around
+``realworld.api.core.auth``. Step 5 moves the canonical FastAPI dependencies
+(``get_current_user`` / ``get_optional_current_user``) into
+``realworld.api.core.auth``. This module now re-exports them so any lingering
+``from realworld.api.core.fastapi_auth import ...`` imports keep working.
+New code must import from ``realworld.api.core.auth`` directly.
 """
 
-import typing as typ
+from realworld.api.core.auth import (
+    get_current_user,
+    get_optional_current_user,
+    get_optional_user_id,
+    get_required_user_id,
+)
 
-from fastapi import Header, HTTPException
-
-from realworld.api.core.auth import _decode_jwt
-
-
-def _extract_token(
-    authorization: typ.Optional[str] = None,
-) -> typ.Optional[str]:
-    if not authorization:
-        return None
-    # Authorization: Token <token>
-    parts = authorization.split(" ", 1)
-    if len(parts) != 2 or not parts[1]:
-        return None
-    return parts[1]
-
-
-def get_optional_user_id(
-    authorization: typ.Optional[str] = Header(default=None),
-) -> typ.Optional[str]:
-    """Return the user_id from the token, or None if missing/invalid.
-
-    Mirrors Flask's ``get_user_id_from_token()`` usage on endpoints that do
-    not require authentication (never raises).
-    """
-    token = _extract_token(authorization)
-    if not token:
-        return None
-    is_valid, decoded = _decode_jwt(token)
-    if not is_valid:
-        return None
-    return decoded.get("user_id")
-
-
-def get_required_user_id(
-    authorization: typ.Optional[str] = Header(default=None),
-) -> str:
-    """Return the user_id, raising 401 if the token is missing/invalid.
-
-    Mirrors Flask's ``validate_token`` decorator behavior as-is.
-    """
-    token = _extract_token(authorization)
-    if not token:
-        raise HTTPException(status_code=401, detail="No token provided.")
-
-    is_valid, decoded = _decode_jwt(token)
-    if not is_valid:
-        raise HTTPException(status_code=401, detail=decoded)
-
-    return decoded.get("user_id")
+__all__ = [
+    "get_current_user",
+    "get_optional_current_user",
+    "get_optional_user_id",
+    "get_required_user_id",
+]

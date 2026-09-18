@@ -2,11 +2,11 @@ import typing as typ
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from realworld.api.core.db import get_db_connection
-from realworld.api.core.fastapi_auth import (
-    get_optional_user_id,
-    get_required_user_id,
+from realworld.api.core.auth import (
+    get_current_user,
+    get_optional_current_user,
 )
+from realworld.api.core.db import get_db_connection
 from realworld.api.routes.v1.articles import handler as articles_handler
 from realworld.api.routes.v1.articles.models import (
     CreateArticleRequest,
@@ -28,7 +28,7 @@ async def get_articles(
     favorited: typ.Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
-    curr_user_id: typ.Optional[str] = Depends(get_optional_user_id),
+    curr_user_id: typ.Optional[str] = Depends(get_optional_current_user),
 ):
     """Returns most recent articles globally by default, provide tag, author
     or favorited query parameter to filter results."""
@@ -53,13 +53,10 @@ async def get_articles(
 async def get_feed(
     limit: int = 20,
     offset: int = 0,
-    user_id: str = Depends(get_required_user_id),
+    user_id: str = Depends(get_current_user),
 ):
     """Returns articles created by followed users, ordered by most recent
     first."""
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
     async with get_db_connection() as db_session:
         articles = await articles_handler.get_feed_articles(
             db_session,
@@ -77,7 +74,7 @@ async def get_feed(
 @router.get("/articles/{slug}", response_model=SingleArticleResponse)
 async def get_article(
     slug: str,
-    curr_user_id: typ.Optional[str] = Depends(get_optional_user_id),
+    curr_user_id: typ.Optional[str] = Depends(get_optional_current_user),
 ):
     async with get_db_connection() as db_session:
         article = await articles_handler.get_article_by_slug(
@@ -92,11 +89,8 @@ async def get_article(
 @router.post("/articles", response_model=SingleArticleResponse)
 async def create_article(
     payload: CreateArticleRequest,
-    user_id: typ.Optional[str] = Depends(get_optional_user_id),
+    user_id: str = Depends(get_current_user),
 ):
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
     async with get_db_connection() as db_session:
         article = await articles_handler.create_article(
             db_session, user_id, payload.article
@@ -109,11 +103,8 @@ async def create_article(
 async def update_article(
     slug: str,
     payload: UpdateArticleRequest,
-    user_id: typ.Optional[str] = Depends(get_optional_user_id),
+    user_id: str = Depends(get_current_user),
 ):
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
     async with get_db_connection() as db_session:
         article = await articles_handler.update_article(
             db_session, slug, user_id, payload.article
@@ -127,11 +118,8 @@ async def update_article(
 @router.delete("/articles/{slug}")
 async def delete_article(
     slug: str,
-    user_id: typ.Optional[str] = Depends(get_optional_user_id),
+    user_id: str = Depends(get_current_user),
 ):
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
     async with get_db_connection() as db_session:
         if not await articles_handler.delete_article(db_session, slug, user_id):
             raise HTTPException(status_code=404, detail="Article not found")
@@ -146,11 +134,8 @@ async def delete_article(
 async def create_comment(
     slug: str,
     payload: CreateCommentRequest,
-    user_id: typ.Optional[str] = Depends(get_optional_user_id),
+    user_id: str = Depends(get_current_user),
 ):
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
     async with get_db_connection() as db_session:
         does_article_exist, comment = await articles_handler.create_article_comment(
             db_session, slug, user_id, payload.comment
@@ -164,7 +149,7 @@ async def create_comment(
 @router.get("/articles/{slug}/comments", response_model=MultipleCommentsResponse)
 async def get_comments(
     slug: str,
-    curr_user_id: typ.Optional[str] = Depends(get_optional_user_id),
+    curr_user_id: typ.Optional[str] = Depends(get_optional_current_user),
 ):
     async with get_db_connection() as db_session:
         comments = await articles_handler.get_article_comments(
@@ -178,11 +163,8 @@ async def get_comments(
 async def delete_comment(
     slug: str,
     comment_id: str,
-    user_id: typ.Optional[str] = Depends(get_optional_user_id),
+    user_id: str = Depends(get_current_user),
 ):
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
     async with get_db_connection() as db_session:
         await articles_handler.delete_article_comment(
             db_session, slug, comment_id, user_id
@@ -197,11 +179,8 @@ async def delete_comment(
 @router.post("/articles/{slug}/favorite", response_model=SingleArticleResponse)
 async def favorite_article(
     slug: str,
-    user_id: typ.Optional[str] = Depends(get_optional_user_id),
+    user_id: str = Depends(get_current_user),
 ):
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
     async with get_db_connection() as db_session:
         article = await articles_handler.add_article_favorite(db_session, slug, user_id)
         if not article:
@@ -213,11 +192,8 @@ async def favorite_article(
 @router.delete("/articles/{slug}/favorite", response_model=SingleArticleResponse)
 async def unfavorite_article(
     slug: str,
-    user_id: typ.Optional[str] = Depends(get_optional_user_id),
+    user_id: str = Depends(get_current_user),
 ):
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
     async with get_db_connection() as db_session:
         article = await articles_handler.delete_article_favorite(
             db_session, slug, user_id

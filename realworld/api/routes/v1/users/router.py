@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 
+from realworld.api.core import auth
 from realworld.api.core.auth import generate_jwt
 from realworld.api.core.db import get_db_connection
-from realworld.api.core.fastapi_auth import get_required_user_id
 from realworld.api.routes.v1.users import handler as users_handler
 from realworld.api.routes.v1.users.models import (
     AuthUser,
@@ -57,10 +57,7 @@ async def authenticate_user(payload: LoginUserRequest):
 
 
 @router.get("/user", response_model=AuthUserResponse)
-async def get_current_user(user_id: str = Depends(get_required_user_id)):
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token.")
-
+async def get_current_user(user_id: str = Depends(auth.get_current_user)):
     async with get_db_connection() as db_session:
         user = await users_handler.get_user(db_session, user_id)
         if user:
@@ -80,11 +77,8 @@ async def get_current_user(user_id: str = Depends(get_required_user_id)):
 @router.put("/user", response_model=AuthUserResponse)
 async def update_user(
     payload: UpdateUserRequest,
-    user_id: str = Depends(get_required_user_id),
+    user_id: str = Depends(auth.get_current_user),
 ):
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token.")
-
     async with get_db_connection() as db_session:
         user = await users_handler.update_user(db_session, user_id, payload.user)
         if not user:

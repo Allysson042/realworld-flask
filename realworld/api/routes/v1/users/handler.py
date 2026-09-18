@@ -1,10 +1,10 @@
-import bcrypt
 import typing as typ
 from logging import Logger
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import text as satext
 from sqlalchemy.exc import IntegrityError
 
+from realworld.api.core import auth as auth_module
 from realworld.api.core.db import coerce_uuid
 from realworld.api.core.models import DBUser
 from .models import UpdateUserData, RegisterUserData, UserData
@@ -14,18 +14,26 @@ logger = Logger(__name__)
 
 
 def hash_password(password: str) -> str:
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+    # Sync wrapper kept for synchronous callers (tests/seeds). Same
+    # bcrypt algorithm/parameters; async request code awaits
+    # ``auth_module.hash_password`` (threadpooled) instead.
+    return auth_module.hash_password_sync(password)
 
 
 def is_valid_password(password: str, hashed_password: str) -> bool:
-    return bcrypt.checkpw(password.encode("utf-8"), hashed_password.encode("utf-8"))
+    # Sync wrapper kept for synchronous callers. Same bcrypt check;
+    # async request code awaits ``auth_module.verify_password``
+    # (threadpooled) instead.
+    return auth_module.verify_password_sync(password, hashed_password)
 
 
 async def create_user(
     db_session: AsyncSession, data: RegisterUserData
 ) -> typ.Optional[DBUser]:
     try:
+        # bcrypt is CPU-bound with no asyncio API; hash off the event loop
+        # via the threadpooled auth helper (algorithm/params unchanged).
+        password_hash = await auth_module.hash_password(data.password)
         result = (
             await db_session.execute(
                 satext(
@@ -38,7 +46,7 @@ async def create_user(
                 ).bindparams(
                     username=data.username,
                     email=data.email,
-                    password_hash=hash_password(data.password),
+                    password_hash=password_hash,
                 )
             )
         ).fetchone()
@@ -110,7 +118,9 @@ async def validate_user_creds(
     if not result:
         return None
 
-    if is_valid_password(password, result.password_hash):
+    # bcrypt is CPU-bound with no asyncio API; verify off the event loop
+    # via the threadpooled auth helper (algorithm/params unchanged).
+    if await auth_module.verify_password(password, result.password_hash):
         return DBUser(
             user_id=str(result.id),
             username=result.username,
