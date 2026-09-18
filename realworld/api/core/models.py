@@ -1,7 +1,7 @@
 import humps
 import typing as typ
 from datetime import datetime
-from pydantic import BaseModel, field_serializer
+from pydantic import BaseModel, ConfigDict, field_serializer
 
 
 #
@@ -10,10 +10,12 @@ from pydantic import BaseModel, field_serializer
 
 
 class BaseCamelModel(BaseModel):
-    class Config:
-        alias_generator = humps.camelize
-        populate_by_name = True
-        extra = "ignore"
+    model_config = ConfigDict(
+        alias_generator=humps.camelize,
+        populate_by_name=True,
+        extra="ignore",
+        from_attributes=True,
+    )
 
     def model_dump(self, *args, **kwargs) -> dict:
         if "by_alias" not in kwargs:
