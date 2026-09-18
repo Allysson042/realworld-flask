@@ -1,7 +1,8 @@
 import os
 from uuid import uuid4
 from pytest import fixture
-from realworld.app import create_app
+from fastapi.testclient import TestClient
+from realworld.asgi import app
 from sqlalchemy import create_engine, text as satext
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timezone as tz
@@ -28,14 +29,13 @@ _TestSession = sessionmaker(bind=_TEST_ENGINE)
 
 @fixture(scope="session")
 def test_app():
-    app = create_app()
-    app.config["TESTING"] = True
     return app
 
 
 @fixture(scope="session")
 def client(test_app):
-    return test_app.test_client()
+    with TestClient(test_app) as c:
+        yield c
 
 
 ###########################################################

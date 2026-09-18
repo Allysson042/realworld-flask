@@ -21,16 +21,11 @@ import os
 import bcrypt
 import jwt
 import typing as typ
-from functools import lru_cache, wraps
+from functools import lru_cache
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Header, HTTPException
 from fastapi.concurrency import run_in_threadpool
-
-try:
-    from flask import request as _flask_request
-except Exception:  # Flask not installed (pure ASGI context)
-    _flask_request = None  # type: ignore[assignment]
 
 ISSUER = "realworld"
 SECRET_KEY = os.getenv("SECRET_KEY", "secret")
@@ -108,45 +103,6 @@ async def is_valid_password(password: str, hashed_password: str) -> bool:
     # bcrypt is CPU-bound with no asyncio API; delegate to the threadpooled
     # verifier so async callers never block the event loop on this call.
     return await verify_password(password, hashed_password)
-
-
-#
-# Legacy Flask helpers (kept so the Flask blueprints keep working during
-# the migration; new FastAPI code must use the dependencies below).
-#
-def _get_token_from_request() -> typ.Optional[str]:
-    if _flask_request is None:
-        return None
-    encoded_token = _flask_request.headers.get("Authorization")
-    if not encoded_token:
-        return None
-
-    # Authorization: Token <token>
-    return encoded_token.split(" ")[1]
-
-
-def validate_token(func):
-    @wraps(func)
-    def wrapper(*args, **kwds):
-
-        encoded_token = _get_token_from_request()
-        if not encoded_token:
-            return {"error": "No token provided."}, 401
-
-        is_valid, decoded = _decode_jwt(encoded_token)
-        if not is_valid:
-            return {"error": decoded}, 401
-
-        return func(*args, **kwds)
-
-    return wrapper
-
-
-def get_user_id_from_token() -> typ.Optional[str]:
-    is_valid, decoded = _decode_jwt(_get_token_from_request())
-    if is_valid:
-        return decoded.get("user_id")
-    return None
 
 
 #

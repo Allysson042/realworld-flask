@@ -1,4 +1,3 @@
-import asyncio
 import os
 import typing as typ
 from contextlib import asynccontextmanager
@@ -21,8 +20,7 @@ def _database_url() -> str:
 
 # NullPool: each checkout opens a fresh connection on the *current* event
 # loop. A pooled asyncpg connection is bound to the loop that created it,
-# which breaks the legacy Flask bridge (one fresh loop per request via
-# asyncio.run) and any test harness mixing loops. Correctness first; pool
+# which breaks any test harness mixing loops. Correctness first; pool
 # tuning (per-loop pools) is a later optimization.
 _ENGINE = create_async_engine(_database_url(), poolclass=NullPool)
 
@@ -61,18 +59,3 @@ async def get_db_connection() -> typ.AsyncIterator[AsyncSession]:
             print(f"An error occurred: {e}")
             await session.rollback()
             raise e
-
-
-async def _run_with_session(fn, *args, **kwargs):
-    async with get_db_connection() as session:
-        return await fn(session, *args, **kwargs)
-
-
-def run_with_db(fn, *args, **kwargs):
-    """Sync bridge for the legacy Flask views.
-
-    Runs an async handler against the async engine to completion on a
-    fresh event loop. The I/O itself goes through asyncpg; only the
-    surrounding Flask view (legacy, sync by framework design) blocks.
-    """
-    return asyncio.run(_run_with_session(fn, *args, **kwargs))

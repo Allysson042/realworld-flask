@@ -27,7 +27,7 @@ def test_get_profile(is_following, is_authenticated, client, add_user, add_user_
     resp = client.get(f"/api/profiles/{user2['username']}", headers=headers)
 
     assert resp.status_code == 200
-    assert resp.json["profile"] == {
+    assert resp.json()["profile"] == {
         "username": user2["username"],
         "bio": user2["bio"],
         "image": user2["image"],
@@ -45,7 +45,7 @@ def test_follow_profile(client, add_user):
     )
 
     assert resp.status_code == 200
-    assert resp.json["profile"] == {
+    assert resp.json()["profile"] == {
         "username": user2["username"],
         "bio": user2["bio"],
         "image": user2["image"],
@@ -64,7 +64,7 @@ def test_unfollow_profile(client, add_user, add_user_follow):
     )
 
     assert resp.status_code == 200
-    assert resp.json["profile"] == {
+    assert resp.json()["profile"] == {
         "username": user2["username"],
         "bio": user2["bio"],
         "image": user2["image"],

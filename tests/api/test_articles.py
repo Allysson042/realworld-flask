@@ -10,12 +10,12 @@ def test_get_articles(client, add_user, add_article):
 
     resp = client.get("/api/articles")
     assert resp.status_code == 200
-    assert resp.json["articlesCount"] == len(articles)
-    assert len(resp.json["articles"]) == len(articles)
+    assert resp.json()["articlesCount"] == len(articles)
+    assert len(resp.json()["articles"]) == len(articles)
 
     # Ensure the articles are in most recent order
     for idx, article in enumerate(reversed(articles)):
-        assert resp.json["articles"][idx] == {
+        assert resp.json()["articles"][idx] == {
             "slug": article["slug"],
             "title": article["title"],
             "description": article["description"],
@@ -52,12 +52,12 @@ def test_get_feed(client, add_user, add_article, add_user_follow):
         headers={"Authorization": f"Token {generate_jwt(user['id'])}"},
     )
     assert resp.status_code == 200
-    assert resp.json["articlesCount"] == len(expected)
-    assert len(resp.json["articles"]) == len(expected)
+    assert resp.json()["articlesCount"] == len(expected)
+    assert len(resp.json()["articles"]) == len(expected)
 
     # Ensure the articles are in most recent order
     for idx, article in enumerate(reversed(expected)):
-        assert resp.json["articles"][idx] == {
+        assert resp.json()["articles"][idx] == {
             "slug": article["slug"],
             "title": article["title"],
             "description": article["description"],
@@ -80,7 +80,7 @@ def test_get_article(client, add_article):
     article = add_article()
     resp = client.get(f"/api/articles/{article['slug']}")
     assert resp.status_code == 200
-    assert resp.json["article"]["slug"] == article["slug"]
+    assert resp.json()["article"]["slug"] == article["slug"]
 
 
 def test_create_article_unauthenticated(client):
@@ -112,7 +112,7 @@ def test_create_article(client, add_user):
         headers={"Authorization": f"Token {generate_jwt(user['id'])}"},
     )
     assert resp.status_code == 200
-    assert resp.json["article"]["title"] == payload["article"]["title"]
+    assert resp.json()["article"]["title"] == payload["article"]["title"]
 
 
 def test_update_article_unauthenticated(client, add_article):
@@ -132,7 +132,7 @@ def test_update_article(client, add_user, add_article):
         headers={"Authorization": f"Token {generate_jwt(user['id'])}"},
     )
     assert resp.status_code == 200
-    assert resp.json["article"]["title"] == payload["article"]["title"]
+    assert resp.json()["article"]["title"] == payload["article"]["title"]
 
 
 def test_delete_article_unauthenticated(client, add_article):
@@ -149,7 +149,7 @@ def test_delete_article(client, add_user, add_article):
         headers={"Authorization": f"Token {generate_jwt(user['id'])}"},
     )
     assert resp.status_code == 200
-    assert resp.json["message"] == "Article deleted"
+    assert resp.json()["message"] == "Article deleted"
 
 
 #
@@ -163,7 +163,7 @@ def test_favorite_article(client, add_user, add_article):
         headers={"Authorization": f"Token {generate_jwt(user['id'])}"},
     )
     assert resp.status_code == 200
-    assert resp.json["article"]["favorited"] is True
+    assert resp.json()["article"]["favorited"] is True
 
 
 def test_unfavorite_article(client, add_user, add_article, add_article_favorite):
@@ -175,7 +175,7 @@ def test_unfavorite_article(client, add_user, add_article, add_article_favorite)
         headers={"Authorization": f"Token {generate_jwt(user['id'])}"},
     )
     assert resp.status_code == 200
-    assert resp.json["article"]["favorited"] is False
+    assert resp.json()["article"]["favorited"] is False
 
 
 #
@@ -191,7 +191,7 @@ def test_get_comments(client, add_user, add_article, add_article_comment):
 
     resp = client.get(f"/api/articles/{article['slug']}/comments")
     assert resp.status_code == 200
-    assert resp.json["comments"] == [
+    assert resp.json()["comments"] == [
         {
             "id": comment["id"],
             "createdAt": comment["created_date"],
@@ -218,7 +218,7 @@ def test_create_comment(client, add_user, add_article):
         headers={"Authorization": f"Token {generate_jwt(user['id'])}"},
     )
     assert resp.status_code == 200
-    assert resp.json["comment"]["body"] == payload["comment"]["body"]
+    assert resp.json()["comment"]["body"] == payload["comment"]["body"]
 
 
 def test_delete_comment(client, add_user, add_article, add_article_comment):
@@ -232,7 +232,7 @@ def test_delete_comment(client, add_user, add_article, add_article_comment):
         headers={"Authorization": f"Token {generate_jwt(user['id'])}"},
     )
     assert resp.status_code == 200
-    assert resp.json["message"] == "Comment deleted"
+    assert resp.json()["message"] == "Comment deleted"
 
 
 #
@@ -244,7 +244,7 @@ def test_get_tags(client, add_article):
 
     resp = client.get("/api/tags")
     assert resp.status_code == 200
-    assert resp.json["tags"] == [
+    assert resp.json()["tags"] == [
         "mock",
         "test",
         "article",

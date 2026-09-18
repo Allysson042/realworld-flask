@@ -8,17 +8,16 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 pydantic = "^2.5.2"
-flask = "^3.0.0"
 pyhumps = "^3.8.0"
 alembic = "^1.13.1"
 psycopg2-binary = "^2.9.9"
 bcrypt = "^4.2.0"
 pyjwt = "^2.9.0"
-flask-cors = "^5.0.0"
 fastapi = "^0.141.1"
 uvicorn = {extras = ["standard"], version = "^0.53.0"}
 asyncpg = "^0.31.0"
 sqlalchemy = "^2.0.25"
+httpx = "^0.28.1"
 
 [tool.poetry.group.dev.dependencies]
 ipython = "^8.18.1"
