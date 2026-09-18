@@ -1,37 +1,32 @@
 import os
-import typing as typ
-from sqlalchemy import create_engine
-from contextlib import contextmanager
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.orm.session import Session, Connection
+from contextlib import asynccontextmanager
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-_ENGINE = create_engine(
-    f"postgresql+psycopg2://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}/{os.getenv('POSTGRES_DB')}"
+_ENGINE = create_async_engine(
+    f"postgresql+asyncpg://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}/{os.getenv('POSTGRES_DB')}",
+    pool_pre_ping=True,
 )
 
-_Session = sessionmaker(bind=_ENGINE)
+_AsyncSession = async_sessionmaker(
+    bind=_ENGINE, class_=AsyncSession, expire_on_commit=False
+)
 
 
-def _create_db_connection() -> typ.Tuple[Session, Connection]:
-    """Create a new database connection."""
-    session = _Session()
-    conn = session.connection()
-    return session, conn
+@asynccontextmanager
+async def get_db_connection():
+    """Async context manager for handling database transactions.
 
+    Yields an :class:`AsyncSession` backed by the asyncpg driver and
+    commits on clean exit / rolls back on error (mirrors the old sync
+    helper's semantics, but genuinely non-blocking).
+    """
 
-@contextmanager
-def get_db_connection():
-    """Context manager for handling database transactions."""
+    async with _AsyncSession() as session:
+        try:
+            yield session
+            await session.commit()
 
-    session, conn = _create_db_connection()
-
-    try:
-        yield conn
-        session.commit()
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        session.rollback()
-        raise e
-    finally:
-        session.close()
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            await session.rollback()
+            raise e

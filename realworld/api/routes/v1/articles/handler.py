@@ -1,7 +1,7 @@
 import re
 import typing as typ
 from uuid import uuid4
-from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import text as satext
 from realworld.api.core.models import Article, Profile, Comment
 
@@ -22,15 +22,17 @@ def generate_slug(title: str) -> str:
     return f"{slug}-{uuid4().hex[:8]}"
 
 
-def _get_curr_profile_by_id(db_conn: Connection, user_id: str) -> Profile:
-    result = db_conn.execute(
-        satext(
-            """
-            SELECT username, bio, image_url
-            FROM users
-            WHERE id = :user_id
-            """
-        ).bindparams(user_id=user_id)
+async def _get_curr_profile_by_id(db_conn: AsyncSession, user_id: str) -> Profile:
+    result = (
+        await db_conn.execute(
+            satext(
+                """
+                SELECT username, bio, image_url
+                FROM users
+                WHERE id = :user_id
+                """
+            ).bindparams(user_id=user_id)
+        )
     ).fetchone()
 
     return Profile(
@@ -53,7 +55,6 @@ def _base_get_articles_query(
     limit: typ.Optional[int] = 20,
     offset: typ.Optional[int] = 0,
 ):
-
     joins = []
     where_clauses = []
     params = {
@@ -144,8 +145,8 @@ def _base_get_articles_query(
 #
 
 
-def get_articles(
-    db_conn: Connection,
+async def get_articles(
+    db_conn: AsyncSession,
     *,
     curr_user_id: typ.Optional[str] = None,
     filter_tag: typ.Optional[str] = None,
@@ -154,14 +155,16 @@ def get_articles(
     limit: typ.Optional[int] = 20,
     offset: typ.Optional[int] = 0,
 ) -> typ.List[Article]:
-    articles = db_conn.execute(
-        _base_get_articles_query(
-            curr_user_id=curr_user_id,
-            filter_tag=filter_tag,
-            author_username_filter=author_username_filter,
-            favorited_by_username_filter=favorited_by_username_filter,
-            limit=limit,
-            offset=offset,
+    articles = (
+        await db_conn.execute(
+            _base_get_articles_query(
+                curr_user_id=curr_user_id,
+                filter_tag=filter_tag,
+                author_username_filter=author_username_filter,
+                favorited_by_username_filter=favorited_by_username_filter,
+                limit=limit,
+                offset=offset,
+            )
         )
     ).fetchall()
 
@@ -188,18 +191,20 @@ def get_articles(
     ]
 
 
-def get_feed_articles(
-    db_conn: Connection,
+async def get_feed_articles(
+    db_conn: AsyncSession,
     curr_user_id: str,
     limit: typ.Optional[int] = 20,
     offset: typ.Optional[int] = 0,
 ) -> typ.List[Article]:
-    articles = db_conn.execute(
-        _base_get_articles_query(
-            curr_user_id=curr_user_id,
-            curr_user_feed=True,
-            limit=limit,
-            offset=offset,
+    articles = (
+        await db_conn.execute(
+            _base_get_articles_query(
+                curr_user_id=curr_user_id,
+                curr_user_feed=True,
+                limit=limit,
+                offset=offset,
+            )
         )
     ).fetchall()
 
@@ -226,11 +231,13 @@ def get_feed_articles(
     ]
 
 
-def get_article_by_slug(
-    db_conn: Connection, slug: str, curr_user_id: typ.Optional[str]
+async def get_article_by_slug(
+    db_conn: AsyncSession, slug: str, curr_user_id: typ.Optional[str]
 ) -> typ.Optional[Article]:
-    article = db_conn.execute(
-        _base_get_articles_query(slug=slug, curr_user_id=curr_user_id)
+    article = (
+        await db_conn.execute(
+            _base_get_articles_query(slug=slug, curr_user_id=curr_user_id)
+        )
     ).fetchone()
 
     if not article:
@@ -256,27 +263,29 @@ def get_article_by_slug(
     )
 
 
-def create_article(
-    db_conn: Connection, curr_user_id: str, data: CreateArticleData
+async def create_article(
+    db_conn: AsyncSession, curr_user_id: str, data: CreateArticleData
 ) -> Article:
-    article = db_conn.execute(
-        satext(
-            """
-            INSERT INTO articles (author_user_id, slug, title, description, body)
-            VALUES (:author_user_id, :slug, :title, :description, :body)
-            RETURNING id, slug
-            """
-        ).bindparams(
-            author_user_id=curr_user_id,
-            slug=generate_slug(data.title),
-            title=data.title,
-            description=data.description,
-            body=data.body,
+    article = (
+        await db_conn.execute(
+            satext(
+                """
+                INSERT INTO articles (author_user_id, slug, title, description, body)
+                VALUES (:author_user_id, :slug, :title, :description, :body)
+                RETURNING id, slug
+                """
+            ).bindparams(
+                author_user_id=curr_user_id,
+                slug=generate_slug(data.title),
+                title=data.title,
+                description=data.description,
+                body=data.body,
+            )
         )
     ).fetchone()
 
     if data.tag_list:
-        db_conn.execute(
+        await db_conn.execute(
             satext(
                 """
                 WITH upserted_tags AS (
@@ -293,19 +302,17 @@ def create_article(
             [{"name": tag, "article_id": article.id} for tag in data.tag_list],
         )
 
-    return get_article_by_slug(db_conn, article.slug, curr_user_id)
+    return await get_article_by_slug(db_conn, article.slug, curr_user_id)
 
 
-def update_article(
-    db_conn: Connection, curr_slug: str, curr_user_id: str, data: UpdateArticleData
+async def update_article(
+    db_conn: AsyncSession, curr_slug: str, curr_user_id: str, data: UpdateArticleData
 ) -> Article:
-
     update_str = ""
     params = {}
     new_slug = None
     for key in ("title", "description", "body"):
         if value := getattr(data, key):
-
             if key == "title":
                 update_str += "slug = :new_slug, "
                 new_slug = generate_slug(value)
@@ -314,7 +321,7 @@ def update_article(
             update_str += f"{key} = :{key}, "
             params[key] = value
 
-    db_conn.execute(
+    await db_conn.execute(
         satext(
             f"""
             UPDATE articles
@@ -331,11 +338,11 @@ def update_article(
     )
 
     slug = new_slug if new_slug else curr_slug
-    return get_article_by_slug(db_conn, slug, curr_user_id)
+    return await get_article_by_slug(db_conn, slug, curr_user_id)
 
 
-def delete_article(db_conn: Connection, slug: str, curr_user_id: str) -> bool:
-    result = db_conn.execute(
+async def delete_article(db_conn: AsyncSession, slug: str, curr_user_id: str) -> bool:
+    result = await db_conn.execute(
         satext(
             """
             DELETE FROM articles
@@ -347,21 +354,23 @@ def delete_article(db_conn: Connection, slug: str, curr_user_id: str) -> bool:
     return bool(result.rowcount)
 
 
-def create_article_comment(
-    db_conn: Connection, slug: str, curr_user_id: str, data: CreateCommentData
+async def create_article_comment(
+    db_conn: AsyncSession, slug: str, curr_user_id: str, data: CreateCommentData
 ) -> typ.Tuple[bool, Comment]:
-    result = db_conn.execute(
-        satext(
-            """
-            INSERT INTO article_comments (article_id, commenter_user_id, body)
-            VALUES (
-                (SELECT id FROM articles WHERE slug = :slug),
-                :curr_user_id,
-                :body
-            )
-            RETURNING id, created_date, body
-            """
-        ).bindparams(slug=slug, curr_user_id=curr_user_id, body=data.body)
+    result = (
+        await db_conn.execute(
+            satext(
+                """
+                INSERT INTO article_comments (article_id, commenter_user_id, body)
+                VALUES (
+                    (SELECT id FROM articles WHERE slug = :slug),
+                    :curr_user_id,
+                    :body
+                )
+                RETURNING id, created_date, body
+                """
+            ).bindparams(slug=slug, curr_user_id=curr_user_id, body=data.body)
+        )
     ).fetchone()
 
     if not result:
@@ -372,36 +381,38 @@ def create_article_comment(
         created_at=result.created_date,
         updated_at=result.created_date,
         body=result.body,
-        author=_get_curr_profile_by_id(db_conn, curr_user_id),
+        author=await _get_curr_profile_by_id(db_conn, curr_user_id),
     )
 
 
-def get_article_comments(
-    db_conn: Connection, slug: str, curr_user_id: typ.Optional[str]
+async def get_article_comments(
+    db_conn: AsyncSession, slug: str, curr_user_id: typ.Optional[str]
 ) -> typ.List[Comment]:
-    result = db_conn.execute(
-        satext(
-            """
-            SELECT
-                ac.id,
-                ac.body,
-                ac.created_date,
-                ac.updated_date,
-                u.username,
-                u.bio,
-                u.image_url,
-                (
-                    SELECT COUNT(*)
-                    FROM user_follows uf
-                    WHERE uf.user_id = :curr_user_id
-                    AND uf.following_user_id = u.id
-                ) > 0 AS is_following
-            FROM article_comments ac
-            JOIN users u ON ac.commenter_user_id = u.id
-            JOIN articles a ON ac.article_id = a.id
-            WHERE a.slug = :slug
-            """
-        ).bindparams(slug=slug, curr_user_id=curr_user_id)
+    result = (
+        await db_conn.execute(
+            satext(
+                """
+                SELECT
+                    ac.id,
+                    ac.body,
+                    ac.created_date,
+                    ac.updated_date,
+                    u.username,
+                    u.bio,
+                    u.image_url,
+                    (
+                        SELECT COUNT(*)
+                        FROM user_follows uf
+                        WHERE uf.user_id = :curr_user_id
+                        AND uf.following_user_id = u.id
+                    ) > 0 AS is_following
+                FROM article_comments ac
+                JOIN users u ON ac.commenter_user_id = u.id
+                JOIN articles a ON ac.article_id = a.id
+                WHERE a.slug = :slug
+                """
+            ).bindparams(slug=slug, curr_user_id=curr_user_id)
+        )
     ).fetchall()
 
     if not result:
@@ -427,10 +438,10 @@ def get_article_comments(
     return comments
 
 
-def delete_article_comment(
-    db_conn: Connection, slug: str, comment_id: int, curr_user_id: str
+async def delete_article_comment(
+    db_conn: AsyncSession, slug: str, comment_id: int, curr_user_id: str
 ) -> bool:
-    db_conn.execute(
+    await db_conn.execute(
         satext(
             """
             DELETE FROM article_comments
@@ -443,10 +454,10 @@ def delete_article_comment(
     return True
 
 
-def add_article_favorite(
-    db_conn: Connection, slug: str, curr_user_id: str
+async def add_article_favorite(
+    db_conn: AsyncSession, slug: str, curr_user_id: str
 ) -> typ.Optional[Article]:
-    db_conn.execute(
+    await db_conn.execute(
         satext(
             """
             INSERT INTO article_favorites (article_id, user_id)
@@ -457,13 +468,13 @@ def add_article_favorite(
             """
         ).bindparams(slug=slug, user_id=curr_user_id)
     )
-    return get_article_by_slug(db_conn, slug, curr_user_id)
+    return await get_article_by_slug(db_conn, slug, curr_user_id)
 
 
-def delete_article_favorite(
-    db_conn: Connection, slug: str, curr_user_id: str
+async def delete_article_favorite(
+    db_conn: AsyncSession, slug: str, curr_user_id: str
 ) -> typ.Optional[Article]:
-    db_conn.execute(
+    await db_conn.execute(
         satext(
             """
             DELETE FROM article_favorites
@@ -476,9 +487,9 @@ def delete_article_favorite(
             """
         ).bindparams(slug=slug, user_id=curr_user_id)
     )
-    return get_article_by_slug(db_conn, slug, curr_user_id)
+    return await get_article_by_slug(db_conn, slug, curr_user_id)
 
 
-def get_all_tags(db_conn: Connection) -> typ.List[str]:
-    result = db_conn.execute(satext("SELECT * from tags")).fetchall()
+async def get_all_tags(db_conn: AsyncSession) -> typ.List[str]:
+    result = (await db_conn.execute(satext("SELECT * from tags"))).fetchall()
     return [tag.name for tag in result]

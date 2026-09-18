@@ -1,32 +1,33 @@
 import typing as typ
-from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import text as satext
 from realworld.api.routes.v1.profiles.models import ProfileData
 
 
-def get_profile(
-    db_conn: Connection, username: str, curr_user_id: typ.Optional[str] = None
+async def get_profile(
+    db_conn: AsyncSession, username: str, curr_user_id: typ.Optional[str] = None
 ) -> typ.Optional[ProfileData]:
-
-    result = db_conn.execute(
-        satext(
-            """
-            SELECT
-                username,
-                bio,
-                image_url,
-                CASE
-                    WHEN uf.following_user_id IS NOT NULL THEN TRUE ELSE FALSE
-                END AS following
-            FROM users u
-            LEFT JOIN (
-                SELECT following_user_id
-                FROM user_follows
-                WHERE user_id = :curr_user_id
-            ) uf ON u.id = uf.following_user_id
-            WHERE username = :username
-            """
-        ).bindparams(username=username, curr_user_id=curr_user_id)
+    result = (
+        await db_conn.execute(
+            satext(
+                """
+                SELECT
+                    username,
+                    bio,
+                    image_url,
+                    CASE
+                        WHEN uf.following_user_id IS NOT NULL THEN TRUE ELSE FALSE
+                    END AS following
+                FROM users u
+                LEFT JOIN (
+                    SELECT following_user_id
+                    FROM user_follows
+                    WHERE user_id = :curr_user_id
+                ) uf ON u.id = uf.following_user_id
+                WHERE username = :username
+                """
+            ).bindparams(username=username, curr_user_id=curr_user_id)
+        )
     ).fetchone()
 
     if not result:
@@ -40,10 +41,10 @@ def get_profile(
     )
 
 
-def follow_profile(
-    db_conn: Connection, username: str, curr_user_id: typ.Optional[str] = None
+async def follow_profile(
+    db_conn: AsyncSession, username: str, curr_user_id: typ.Optional[str] = None
 ) -> typ.Optional[ProfileData]:
-    db_conn.execute(
+    await db_conn.execute(
         satext(
             """
             INSERT INTO user_follows (user_id, following_user_id)
@@ -55,13 +56,13 @@ def follow_profile(
         ).bindparams(username=username, curr_user_id=curr_user_id)
     )
 
-    return get_profile(db_conn, username, curr_user_id)
+    return await get_profile(db_conn, username, curr_user_id)
 
 
-def unfollow_profile(
-    db_conn: Connection, username: str, curr_user_id: typ.Optional[str] = None
+async def unfollow_profile(
+    db_conn: AsyncSession, username: str, curr_user_id: typ.Optional[str] = None
 ) -> typ.Optional[ProfileData]:
-    db_conn.execute(
+    await db_conn.execute(
         satext(
             """
             DELETE FROM user_follows
@@ -71,4 +72,4 @@ def unfollow_profile(
         ).bindparams(username=username, curr_user_id=curr_user_id)
     )
 
-    return get_profile(db_conn, username, curr_user_id)
+    return await get_profile(db_conn, username, curr_user_id)

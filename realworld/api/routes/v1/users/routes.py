@@ -1,3 +1,4 @@
+import asyncio
 from flask import Blueprint, request
 from realworld.api.core.db import get_db_connection
 from realworld.api.core.auth import generate_jwt, validate_token, get_user_id_from_token
@@ -17,12 +18,21 @@ users_blueprint = Blueprint(
 )
 
 
+def _await(coro):
+    """Bridge sync Flask views to the async handlers/DB layer."""
+    return asyncio.run(coro)
+
+
 @users_blueprint.route("/users", methods=["POST"])
 def create_user() -> dict:
     data = RegisterUserRequest.model_validate(request.json)
-    with get_db_connection() as db_conn:
-        if not (user := users_handler.create_user(db_conn, data.user)):
-            return {"error": "A user with this username already exists."}, 409
+
+    async def _create():
+        async with get_db_connection() as db_conn:
+            return await users_handler.create_user(db_conn, data.user)
+
+    if not (user := _await(_create())):
+        return {"error": "A user with this username already exists."}, 409
 
     return AuthUserResponse(
         user=AuthUser(
@@ -38,13 +48,15 @@ def create_user() -> dict:
 @users_blueprint.route("/users/login", methods=["POST"])
 def authenticate_user() -> dict:
     data = LoginUserRequest.model_validate(request.json)
-    with get_db_connection() as db_conn:
-        if not (
-            user := users_handler.validate_user_creds(
+
+    async def _auth():
+        async with get_db_connection() as db_conn:
+            return await users_handler.validate_user_creds(
                 db_conn, email=data.user.email, password=data.user.password
             )
-        ):
-            return {"error": "User does not exist."}, 404
+
+    if not (user := _await(_auth())):
+        return {"error": "User does not exist."}, 404
 
     return AuthUserResponse(
         user=AuthUser(
@@ -63,17 +75,20 @@ def get_current_user() -> dict:
     if not (user_id := get_user_id_from_token()):
         return {"error": "Invalid token."}, 401
 
-    with get_db_connection() as db_conn:
-        if user := users_handler.get_user(db_conn, user_id):
-            return AuthUserResponse(
-                user=AuthUser(
-                    email=user.email,
-                    token=generate_jwt(user_id),
-                    username=user.username,
-                    bio=user.bio,
-                    image=user.image,
-                )
-            ).model_dump()
+    async def _get():
+        async with get_db_connection() as db_conn:
+            return await users_handler.get_user(db_conn, user_id)
+
+    if user := _await(_get()):
+        return AuthUserResponse(
+            user=AuthUser(
+                email=user.email,
+                token=generate_jwt(user_id),
+                username=user.username,
+                bio=user.bio,
+                image=user.image,
+            )
+        ).model_dump()
 
     return {"error": "User does not exist."}, 404
 
@@ -85,9 +100,12 @@ def update_user() -> dict:
     if not (user_id := get_user_id_from_token()):
         return {"error": "Invalid token."}, 401
 
-    with get_db_connection() as db_conn:
-        if not (user := users_handler.update_user(db_conn, user_id, data.user)):
-            return {"error": "User does not exist."}, 404
+    async def _update():
+        async with get_db_connection() as db_conn:
+            return await users_handler.update_user(db_conn, user_id, data.user)
+
+    if not (user := _await(_update())):
+        return {"error": "User does not exist."}, 404
 
     return AuthUserResponse(
         user=AuthUser(
