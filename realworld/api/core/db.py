@@ -1,37 +1,78 @@
+import asyncio
 import os
 import typing as typ
-from sqlalchemy import create_engine
-from contextlib import contextmanager
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.orm.session import Session, Connection
-
-_ENGINE = create_engine(
-    f"postgresql+psycopg2://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}/{os.getenv('POSTGRES_DB')}"
+from contextlib import asynccontextmanager
+from uuid import UUID
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
 )
-
-_Session = sessionmaker(bind=_ENGINE)
-
-
-def _create_db_connection() -> typ.Tuple[Session, Connection]:
-    """Create a new database connection."""
-    session = _Session()
-    conn = session.connection()
-    return session, conn
+from sqlalchemy.pool import NullPool
 
 
-@contextmanager
-def get_db_connection():
-    """Context manager for handling database transactions."""
+def _database_url() -> str:
+    return (
+        f"postgresql+asyncpg://{os.getenv('POSTGRES_USER')}"
+        f":{os.getenv('POSTGRES_PASSWORD')}"
+        f"@{os.getenv('POSTGRES_HOST')}/{os.getenv('POSTGRES_DB')}"
+    )
 
-    session, conn = _create_db_connection()
 
-    try:
-        yield conn
-        session.commit()
+# NullPool: each checkout opens a fresh connection on the *current* event
+# loop. A pooled asyncpg connection is bound to the loop that created it,
+# which breaks the legacy Flask bridge (one fresh loop per request via
+# asyncio.run) and any test harness mixing loops. Correctness first; pool
+# tuning (per-loop pools) is a later optimization.
+_ENGINE = create_async_engine(_database_url(), poolclass=NullPool)
 
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        session.rollback()
-        raise e
-    finally:
-        session.close()
+_Session = async_sessionmaker(bind=_ENGINE, class_=AsyncSession, expire_on_commit=False)
+
+
+def coerce_uuid(value: typ.Optional[str]) -> typ.Optional[UUID]:
+    """Coerce a UUID-ish bind param for asyncpg.
+
+    asyncpg binds ``str`` params as typed ``varchar``, which PostgreSQL
+    refuses to compare against ``uuid`` columns (``uuid = character
+    varying``); the previous synchronous driver sent them untyped so the
+    coercion used to happen server-side. Convert to ``UUID`` objects up
+    front; pass ``None`` through untouched.
+    """
+    if value is None:
+        return None
+    return value if isinstance(value, UUID) else UUID(str(value))
+
+
+@asynccontextmanager
+async def get_db_connection() -> typ.AsyncIterator[AsyncSession]:
+    """Async context manager for handling database transactions.
+
+    Yields an ``AsyncSession`` backed by the asyncpg driver, so all I/O
+    on the request path is genuinely non-blocking. Commits on clean exit,
+    rolls back on error.
+    """
+
+    async with _Session() as session:
+        try:
+            yield session
+            await session.commit()
+
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            await session.rollback()
+            raise e
+
+
+async def _run_with_session(fn, *args, **kwargs):
+    async with get_db_connection() as session:
+        return await fn(session, *args, **kwargs)
+
+
+def run_with_db(fn, *args, **kwargs):
+    """Sync bridge for the legacy Flask views.
+
+    Runs an async handler against the async engine to completion on a
+    fresh event loop. The I/O itself goes through asyncpg; only the
+    surrounding Flask view (legacy, sync by framework design) blocks.
+    """
+    return asyncio.run(_run_with_session(fn, *args, **kwargs))

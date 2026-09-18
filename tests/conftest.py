@@ -1,14 +1,24 @@
+import os
 from uuid import uuid4
 from pytest import fixture
-from unittest.mock import patch
 from realworld.app import create_app
-from sqlalchemy import text as satext
+from sqlalchemy import create_engine, text as satext
+from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timezone as tz
-from realworld.api.core.db import _ENGINE, _Session
 from realworld.api.routes.v1.users.handler import hash_password
 
 # from realworld.api.core.auth import generate_jwt
 # from .data import SESSION_USER_ID, SESSION_USER_NAME
+
+
+# NOTE (step 4): the app request path is fully async (asyncpg). This test
+# harness keeps its own throwaway *synchronous* engine purely to seed fixture
+# rows with plain committed INSERTs (visible to the app's async connections)
+# and to truncate tables between tests. No app code uses this engine.
+_TEST_ENGINE = create_engine(
+    f"postgresql+psycopg2://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}/{os.getenv('POSTGRES_DB')}"
+)
+_TestSession = sessionmaker(bind=_TEST_ENGINE)
 
 
 ####################
@@ -29,31 +39,24 @@ def client(test_app):
 
 
 ###########################################################
-# DB Fixtures (rollback transaction after each unit test) #
+# DB Fixtures (truncate tables after each unit test)      #
 ###########################################################
 
 
-@fixture(scope="session")
-def mock_conn():
-    connection = _ENGINE.connect()
-    yield connection
-    connection.close()
-
-
 @fixture(scope="function")
-def mock_db_session(mock_conn):
-    transaction = mock_conn.begin()
-    session = _Session(bind=mock_conn)
+def db_session():
+    session = _TestSession()
     yield session
     session.close()
-    transaction.rollback()
 
 
 @fixture(autouse=True)
-def mock_get_db_connection(mock_db_session):
-    with patch("realworld.api.core.db._create_db_connection") as mock_db_conn:
-        mock_db_conn.return_value = mock_db_session, mock_db_session.connection()
-        yield mock_db_conn
+def clean_db(db_session):
+    yield
+    db_session.execute(
+        satext("TRUNCATE TABLE users, articles, tags RESTART IDENTITY CASCADE")
+    )
+    db_session.commit()
 
 
 ####################
@@ -62,7 +65,7 @@ def mock_get_db_connection(mock_db_session):
 
 
 @fixture(scope="function")
-def add_user(mock_db_session):
+def add_user(db_session):
     def _add_user(
         _id=None,
         username=None,
@@ -92,7 +95,8 @@ def add_user(mock_db_session):
             VALUES (:id, :username, :email, :password_hash, :image, :bio, :created_date, :updated_date)
             """
         ).bindparams(**user)
-        mock_db_session.execute(stmt)
+        db_session.execute(stmt)
+        db_session.commit()
 
         # Reset user dict before returning
         user.pop("password_hash")
@@ -113,7 +117,7 @@ def add_user(mock_db_session):
 
 
 @fixture(scope="function")
-def add_user_follow(mock_db_session):
+def add_user_follow(db_session):
     def _add_user_follow(user_id, following_user_id):
         stmt = satext(
             """
@@ -121,14 +125,15 @@ def add_user_follow(mock_db_session):
             VALUES (:user_id, :following_user_id)
             """
         ).bindparams(user_id=user_id, following_user_id=following_user_id)
-        mock_db_session.execute(stmt)
+        db_session.execute(stmt)
+        db_session.commit()
         return True
 
     return _add_user_follow
 
 
 @fixture(scope="function")
-def add_article(mock_db_session, add_user):
+def add_article(db_session, add_user):
     def _add_article(
         _id=None,
         author_user_id=None,
@@ -153,7 +158,7 @@ def add_article(mock_db_session, add_user):
             "updated_date": ts,
         }
 
-        mock_db_session.execute(
+        db_session.execute(
             satext(
                 """
                 INSERT INTO articles (id, author_user_id, slug, title, description, body, created_date, updated_date)
@@ -164,7 +169,7 @@ def add_article(mock_db_session, add_user):
         )
 
         if article["tags"]:
-            mock_db_session.execute(
+            db_session.execute(
                 satext(
                     """
                     WITH upserted_tags AS (
@@ -181,13 +186,15 @@ def add_article(mock_db_session, add_user):
                 [{"name": tag, "article_id": article["id"]} for tag in article["tags"]],
             )
 
+        db_session.commit()
+
         return article
 
     return _add_article
 
 
 @fixture(scope="function")
-def add_article_favorite(mock_db_session):
+def add_article_favorite(db_session):
     def _add_article_favorite(user_id=None, article_id=None):
         article_favorite = {
             "user_id": user_id or str(uuid4()),
@@ -200,7 +207,8 @@ def add_article_favorite(mock_db_session):
             VALUES (:user_id, :article_id)
             """
         )
-        mock_db_session.execute(stmt, article_favorite)
+        db_session.execute(stmt, article_favorite)
+        db_session.commit()
 
         return article_favorite
 
@@ -208,7 +216,7 @@ def add_article_favorite(mock_db_session):
 
 
 @fixture(scope="function")
-def add_article_comment(mock_db_session, add_user, add_article):
+def add_article_comment(db_session, add_user, add_article):
     def _add_article_comment(
         _id=None, article_id=None, commenter_user_id=None, body=None, ts=None
     ):
@@ -230,7 +238,8 @@ def add_article_comment(mock_db_session, add_user, add_article):
             VALUES (:id, :article_id, :commenter_user_id, :body, :created_date, :updated_date)
             """
         )
-        mock_db_session.execute(stmt, article_comment)
+        db_session.execute(stmt, article_comment)
+        db_session.commit()
 
         return article_comment
 
@@ -238,7 +247,7 @@ def add_article_comment(mock_db_session, add_user, add_article):
 
 
 # @fixture(scope="function")
-# def add_tag(mock_db_session):
+# def add_tag(db_session):
 #     def _add_tag(tag=None):
 #         tag = tag or f"mock-tag-{randint(0, 100)}"
 #         stmt = satext(
@@ -247,7 +256,7 @@ def add_article_comment(mock_db_session, add_user, add_article):
 #             VALUES (:tag)
 #             """
 #         )
-#         mock_db_session.execute(stmt, {"tag": tag})
+#         db_session.execute(stmt, {"tag": tag})
 #         return tag
 
 #     return _add_tag

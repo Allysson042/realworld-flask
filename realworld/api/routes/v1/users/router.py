@@ -17,10 +17,8 @@ router = APIRouter()
 
 @router.post("/users", response_model=AuthUserResponse)
 async def create_user(payload: RegisterUserRequest):
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        user = users_handler.create_user(db_conn, payload.user)
+    async with get_db_connection() as db_session:
+        user = await users_handler.create_user(db_session, payload.user)
         if not user:
             raise HTTPException(
                 status_code=409,
@@ -40,11 +38,9 @@ async def create_user(payload: RegisterUserRequest):
 
 @router.post("/users/login", response_model=AuthUserResponse)
 async def authenticate_user(payload: LoginUserRequest):
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        user = users_handler.validate_user_creds(
-            db_conn, email=payload.user.email, password=payload.user.password
+    async with get_db_connection() as db_session:
+        user = await users_handler.validate_user_creds(
+            db_session, email=payload.user.email, password=payload.user.password
         )
         if not user:
             raise HTTPException(status_code=404, detail="User does not exist.")
@@ -65,10 +61,8 @@ async def get_current_user(user_id: str = Depends(get_required_user_id)):
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token.")
 
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        user = users_handler.get_user(db_conn, user_id)
+    async with get_db_connection() as db_session:
+        user = await users_handler.get_user(db_session, user_id)
         if user:
             return AuthUserResponse(
                 user=AuthUser(
@@ -91,10 +85,8 @@ async def update_user(
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token.")
 
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        user = users_handler.update_user(db_conn, user_id, payload.user)
+    async with get_db_connection() as db_session:
+        user = await users_handler.update_user(db_session, user_id, payload.user)
         if not user:
             raise HTTPException(status_code=404, detail="User does not exist.")
 

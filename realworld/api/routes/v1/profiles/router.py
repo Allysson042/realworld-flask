@@ -21,10 +21,8 @@ async def get_profile(
     username: str,
     curr_user_id: typ.Optional[str] = Depends(get_optional_user_id),
 ):
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        profile = profiles_handler.get_profile(db_conn, username, curr_user_id)
+    async with get_db_connection() as db_session:
+        profile = await profiles_handler.get_profile(db_session, username, curr_user_id)
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found.")
 
@@ -43,10 +41,10 @@ async def follow_profile(
     username: str,
     curr_user_id: str = Depends(get_required_user_id),
 ):
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        profile = profiles_handler.follow_profile(db_conn, username, curr_user_id)
+    async with get_db_connection() as db_session:
+        profile = await profiles_handler.follow_profile(
+            db_session, username, curr_user_id
+        )
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found.")
 
@@ -65,10 +63,10 @@ async def unfollow_profile(
     username: str,
     curr_user_id: str = Depends(get_required_user_id),
 ):
-    # NOTE: intentionally blocking sync psycopg2 I/O inside `async def`;
-    # converted to async I/O in a later step.
-    with get_db_connection() as db_conn:
-        profile = profiles_handler.unfollow_profile(db_conn, username, curr_user_id)
+    async with get_db_connection() as db_session:
+        profile = await profiles_handler.unfollow_profile(
+            db_session, username, curr_user_id
+        )
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found.")
 
